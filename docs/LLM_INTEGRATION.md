@@ -58,6 +58,75 @@ flowchart LR
 
 ---
 
+## ⏳ Async Execution: Background Tasks & Polling Lifecycle
+
+Because LLM generation across large prompts (career roadmaps, CV synthesis, node expansions, coding grading) can take **5 to 20 seconds**, endpoints that trigger LLM calls must **never make the client wait synchronously**.
+
+Instead, all heavy LLM features in Careera use FastAPI's **`BackgroundTasks` + Polling pattern**:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Frontend Client
+    participant API as FastAPI Router (POST)
+    participant Worker as Background Task (Worker)
+    participant LLM as LLM Provider (Gemini/DeepSeek/OpenAI)
+    participant DB as MongoDB
+
+    Client->>API: 1. POST /api/v1/<domain>/<action>
+    API->>DB: Insert document with status = "PENDING"
+    API->>Worker: Schedule background coroutine: run_<action>(doc_id, user_id)
+    API-->>Client: 2. Immediate Response: { "id": "123", "status": "PENDING" } (<50ms)
+    
+    Worker->>LLM: 3. await generate_json(system, user, PydanticSchema)
+    LLM-->>Worker: Validated JSON Data
+    Worker->>DB: 4. Update document: status = "READY", data = result
+    
+    loop Polling (Every 1.5 - 2s)
+        Client->>API: 5. GET /api/v1/<domain>/<action>/123
+        API->>DB: Check document status
+        API-->>Client: Return { "status": "PENDING" } or { "status": "READY", "data": ... }
+    end
+```
+
+### Standard Implementation Recipe for All LLM Features:
+
+#### 1. Router Endpoint (`POST /...`):
+```python
+@router.post("/analyze", response_model=AnalyzeResponse, status_code=200)
+async def create_analysis(
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
+):
+    # Inserts PENDING document & schedules background task
+    return await analysis_service.create_analysis(
+        user_id=current_user["user_id"],
+        background_tasks=background_tasks,
+    )
+```
+
+#### 2. Service Background Worker:
+```python
+async def run_analysis(analysis_id: str, user_id: str):
+    try:
+        # Await LLM asynchronously without blocking the server
+        result = await generate_json(system=..., user=..., response_model=...)
+        
+        # Persist final READY status and parsed data
+        await db.analyses.update_one(
+            {"_id": ObjectId(analysis_id)},
+            {"$set": {"status": "READY", "result": result}}
+        )
+    except Exception as exc:
+        # Graceful failure handling
+        await db.analyses.update_one(
+            {"_id": ObjectId(analysis_id)},
+            {"$set": {"status": "FAILED", "error": str(exc)}}
+        )
+```
+
+---
+
 ## ⚙️ Environment Configuration
 
 Configure the provider in `backend/.env`:
