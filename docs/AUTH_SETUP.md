@@ -139,8 +139,9 @@ This returns valid Careera `access_token` and `refresh_token` pair that you can 
 
 ---
 
-## 5. Token Lifecycles & Logout Blacklist
+## 5. Token Lifecycles & Security
 
 - **Access Tokens (`15 min`)**: Attached to API requests in `Authorization: Bearer <access_token>`.
-- **Refresh Tokens (`7 days`)**: Used via `POST /api/v1/auth/refresh` to obtain new access tokens.
-- **Logout (`POST /api/v1/auth/logout`)**: Stores the tokens in MongoDB's `refresh_tokens` collection with an `expires_at` date. MongoDB's **TTL index** automatically deletes blacklisted tokens once they reach their natural expiration date.
+- **Sliding Refresh Tokens (`7 days`)**: `POST /api/v1/auth/refresh` exchanges a valid refresh token for a new `access_token` AND a new rotated `refresh_token`. The old refresh token is blacklisted. Users remain logged in unless inactive for 7 consecutive days.
+- **Logout Revocation (`POST /api/v1/auth/logout`)**: Accepts `{ "refresh_token": "..." }` and blacklists both the active access token and refresh token in MongoDB `refresh_tokens`. MongoDB's **TTL index** automatically deletes expired records.
+

@@ -84,4 +84,6 @@ def fake_db(monkeypatch):
     monkeypatch.setattr("app.database.connection.get_database", _get_database)
     monkeypatch.setattr("app.career.service.analysis.get_database", _get_database)
     monkeypatch.setattr("app.profile.service.profile.get_database", _get_database)
+    monkeypatch.setattr("app.auth.service.auth.get_database", _get_database, raising=False)
+    monkeypatch.setattr("app.auth.utils.auth.get_database", _get_database, raising=False)
     return db
