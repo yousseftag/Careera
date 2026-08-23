@@ -10,14 +10,15 @@ This document splits the backend and deployment work into independent, paralleli
 
 ### 1. Authentication & Profile
 *Deals with `users` collection and JWT issuance.*
-- [ ] `POST /auth/login` (Google OAuth validation + issue tokens)
-- [ ] `POST /auth/refresh` (Exchange refresh token)
-- [ ] `POST /auth/logout` (Invalidate tokens)
-- [ ] Auth Middleware (Protect routes with JWT)
-- [ ] `GET /users/me`
-- [ ] `POST /users/me/upload-cv` (PDF parsing)
-- [ ] `POST /users/me/upload-linkedin` (PDF parsing)
-- [ ] `PATCH /users/me/preferences`
+- [x] `POST /auth/login` (Google OAuth validation + issue tokens)
+- [x] `POST /auth/refresh` (Exchange refresh token with sliding rotation)
+- [x] `POST /auth/logout` (Invalidate tokens in MongoDB blacklist)
+- [x] Auth Middleware (Protect routes with JWT)
+- [x] `GET /users/me`
+- [x] `POST /users/me/upload-cv` (PDF parsing via `pypdf`)
+- [x] `POST /users/me/upload-linkedin` (PDF parsing via `pypdf`)
+- [x] `PATCH /users/me/preferences`
+
 
 ### 2. Career Analysis & Path Generation
 *Deals with `analyses` and `career_paths` collections. Can be mocked initially without LLM.*
