@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from bson import ObjectId
@@ -122,7 +122,12 @@ async def dev_login(
         name = user.get("name", name)
 
     token_data = {"sub": user_id, "email": email}
-    access_token, refresh_token = generate_token_pair(token_data)
+    # Dev tokens are long-lived (30 days) for seamless development & testing
+    access_token, refresh_token = generate_token_pair(
+        token_data,
+        access_expires_delta=timedelta(days=30),
+        refresh_expires_delta=timedelta(days=30),
+    )
 
     return LoginResponse(
         message="DEV login successful",
@@ -131,6 +136,7 @@ async def dev_login(
         refresh_token=refresh_token,
         user=UserResponse(id=user_id, email=email, name=name, avatar=None),
     )
+
 
 
 async def refresh_access_token(refresh_token: str) -> RefreshResponse:

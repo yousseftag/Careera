@@ -12,7 +12,16 @@ async def lifespan(app: FastAPI):
     yield
     await close_mongo_connection()
 
-app = FastAPI(title="Careera API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(
+    title="Careera API",
+    version="1.0.0",
+    lifespan=lifespan,
+    swagger_ui_parameters={
+        "persistAuthorization": True,
+        "tryItOutEnabled": True,
+    },
+)
+
 
 register_error_handler(app)
 

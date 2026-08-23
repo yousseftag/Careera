@@ -26,48 +26,79 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 security = HTTPBearer()
 
 
-def create_access_token(data: dict, sid: Optional[str] = None) -> str:
-    """Create JWT access token (15 min expiry) bound to a session ID."""
+def create_access_token(
+    data: dict,
+    sid: Optional[str] = None,
+    expires_delta: Optional[timedelta] = None,
+) -> str:
+    """Create JWT access token bound to a session ID with configurable expiration."""
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     session_id = sid or str(uuid.uuid4())
     to_encode.update({"exp": expire, "type": "access", "jti": str(uuid.uuid4()), "sid": session_id})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def create_refresh_token(data: dict, sid: Optional[str] = None) -> str:
-    """Create JWT refresh token (7 days expiry) bound to a session ID."""
+def create_refresh_token(
+    data: dict,
+    sid: Optional[str] = None,
+    expires_delta: Optional[timedelta] = None,
+) -> str:
+    """Create JWT refresh token bound to a session ID with configurable expiration."""
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     session_id = sid or str(uuid.uuid4())
     to_encode.update({"exp": expire, "type": "refresh", "jti": str(uuid.uuid4()), "sid": session_id})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def generate_token_pair(data: dict) -> tuple[str, str]:
+def generate_token_pair(
+    data: dict,
+    access_expires_delta: Optional[timedelta] = None,
+    refresh_expires_delta: Optional[timedelta] = None,
+) -> tuple[str, str]:
     """Generate cryptographically bound (access_token, refresh_token) pair sharing the same sid."""
     sid = str(uuid.uuid4())
-    access_token = create_access_token(data, sid=sid)
-    refresh_token = create_refresh_token(data, sid=sid)
+    access_token = create_access_token(data, sid=sid, expires_delta=access_expires_delta)
+    refresh_token = create_refresh_token(data, sid=sid, expires_delta=refresh_expires_delta)
     return access_token, refresh_token
+
 
 
 
 def verify_token(token: str, token_type: str = "access") -> dict:
     """Verify and decode JWT token, validating expiration and token type claim."""
+    if not token or not isinstance(token, str):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials: Token is empty or missing",
+        )
+    clean_token = token.strip()
+    if clean_token.lower().startswith("bearer "):
+        clean_token = clean_token[7:].strip()
+
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(clean_token, SECRET_KEY, algorithms=[ALGORITHM])
         if payload.get("type") != token_type:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=f"Invalid token type. Expected {token_type}",
             )
         return payload
-    except JWTError:
+    except HTTPException:
+        raise
+    except JWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
+            detail=f"Could not validate credentials: {exc}",
         )
+
 
 
 def verify_google_token(id_token_str: str) -> dict:

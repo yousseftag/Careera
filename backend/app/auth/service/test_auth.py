@@ -126,11 +126,17 @@ def test_dev_login_creates_and_retrieves_user(fake_db):
         assert resp1.user.name == "Dev One"
         assert len(fake_db.users.docs) == 1
 
+        # Verify 30-day token lifetime
+        payload = verify_token(resp1.access_token, token_type="access")
+        remaining_days = (payload["exp"] - datetime.now(timezone.utc).timestamp()) / 86400
+        assert remaining_days > 29
+
         resp2 = await dev_login("developer@careera.io", "Dev One")
         assert resp2.user.id == resp1.user.id
         assert len(fake_db.users.docs) == 1
 
     asyncio.run(scenario())
+
 
 
 def test_refresh_access_token_success_with_rotation(fake_db):
