@@ -146,10 +146,25 @@ async def upload_cv(user_id: str, file_bytes: bytes, filename: str) -> UploadRes
             status_code=404,
         )
 
-    await db.users.update_one(
-        {"_id": ObjectId(user_id)},
-        {"$set": {"profile.cv_parsed_text": text}},
-    )
+    profile_data = user.get("profile")
+    if not isinstance(profile_data, dict):
+        await db.users.update_one(
+            {"_id": ObjectId(user_id)},
+            {
+                "$set": {
+                    "profile": {
+                        "cv_parsed_text": text,
+                        "linkedin_parsed_text": None,
+                        "interests": {"roles": [], "focus_areas": []},
+                    }
+                }
+            },
+        )
+    else:
+        await db.users.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": {"profile.cv_parsed_text": text}},
+        )
 
     preview = DataPreview(
         file_name=filename,
@@ -182,10 +197,25 @@ async def upload_linkedin(
             status_code=404,
         )
 
-    await db.users.update_one(
-        {"_id": ObjectId(user_id)},
-        {"$set": {"profile.linkedin_parsed_text": text}},
-    )
+    profile_data = user.get("profile")
+    if not isinstance(profile_data, dict):
+        await db.users.update_one(
+            {"_id": ObjectId(user_id)},
+            {
+                "$set": {
+                    "profile": {
+                        "cv_parsed_text": None,
+                        "linkedin_parsed_text": text,
+                        "interests": {"roles": [], "focus_areas": []},
+                    }
+                }
+            },
+        )
+    else:
+        await db.users.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": {"profile.linkedin_parsed_text": text}},
+        )
 
     preview = DataPreview(
         file_name=filename,
@@ -217,12 +247,28 @@ async def update_preferences(
             status_code=404,
         )
 
-    await db.users.update_one(
-        {"_id": ObjectId(user_id)},
-        {"$set": {"profile.interests": interests.model_dump()}},
-    )
+    profile_data = user.get("profile")
+    if not isinstance(profile_data, dict):
+        await db.users.update_one(
+            {"_id": ObjectId(user_id)},
+            {
+                "$set": {
+                    "profile": {
+                        "cv_parsed_text": None,
+                        "linkedin_parsed_text": None,
+                        "interests": interests.model_dump(),
+                    }
+                }
+            },
+        )
+    else:
+        await db.users.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": {"profile.interests": interests.model_dump()}},
+        )
 
     return PreferencesUpdateResponse(
         message="Preferences updated successfully",
         interests=interests,
     )
+

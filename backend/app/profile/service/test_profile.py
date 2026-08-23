@@ -198,3 +198,36 @@ def test_update_preferences_user_not_found_raises_404(fake_db):
         asyncio.run(update_preferences(str(ObjectId()), interests))
     assert exc_info.value.code == "USER_NOT_FOUND"
     assert exc_info.value.status_code == 404
+
+
+def test_upload_cv_with_null_profile_initializes_structure(fake_db):
+    user_id = ObjectId()
+    fake_db.users.docs.append({"_id": user_id, "email": "nullprof@careera.io", "profile": None})
+
+    resp = asyncio.run(upload_cv(str(user_id), SAMPLE_PDF_BYTES, "cv.pdf"))
+    assert resp.message == "CV parsed successfully"
+    user = asyncio.run(fake_db.users.find_one({"_id": user_id}))
+    assert user["profile"]["cv_parsed_text"] == "John Doe Senior Python Engineer"
+
+
+def test_upload_linkedin_with_null_profile_initializes_structure(fake_db):
+    user_id = ObjectId()
+    fake_db.users.docs.append({"_id": user_id, "email": "nullprof2@careera.io", "profile": None})
+
+    resp = asyncio.run(upload_linkedin(str(user_id), SAMPLE_PDF_BYTES, "linkedin.pdf"))
+    assert resp.message == "LinkedIn profile parsed successfully"
+    user = asyncio.run(fake_db.users.find_one({"_id": user_id}))
+    assert user["profile"]["linkedin_parsed_text"] == "John Doe Senior Python Engineer"
+
+
+def test_update_preferences_with_null_profile_initializes_structure(fake_db):
+    user_id = ObjectId()
+    fake_db.users.docs.append({"_id": user_id, "email": "nullprof3@careera.io", "profile": None})
+    interests = Interests(roles=["AI Engineer"], focus_areas=["FastAPI"])
+
+    resp = asyncio.run(update_preferences(str(user_id), interests))
+    assert resp.message == "Preferences updated successfully"
+    user = asyncio.run(fake_db.users.find_one({"_id": user_id}))
+    assert user["profile"]["interests"]["roles"] == ["AI Engineer"]
+
+
