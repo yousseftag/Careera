@@ -13,9 +13,11 @@ from app.auth.utils.auth import (
     blacklist_token,
     create_access_token,
     create_refresh_token,
+    generate_token_pair,
     is_token_blacklisted,
     verify_token,
 )
+
 from app.share.api.errors import AppError
 
 
@@ -228,19 +230,89 @@ def test_refresh_access_token_unknown_user_raises_401(fake_db):
 def test_logout_missing_refresh_token_raises_400(fake_db):
     async def scenario():
         with pytest.raises(AppError) as exc_info:
-            await logout(access_token="any-token", refresh_token="")
+            await logout(
+                current_user={"user_id": "user-1"},
+                access_token="any-token",
+                refresh_token="",
+            )
         assert exc_info.value.code == "MISSING_TOKEN"
         assert exc_info.value.status_code == 400
 
     asyncio.run(scenario())
 
 
-def test_logout_blacklists_both_tokens(fake_db):
-    access_tok = create_access_token({"sub": "user-1", "email": "test@careera.io"})
-    refresh_tok = create_refresh_token({"sub": "user-1", "email": "test@careera.io"})
+def test_logout_malformed_refresh_token_raises_401(fake_db):
+    async def scenario():
+        with pytest.raises(AppError) as exc_info:
+            await logout(
+                current_user={"user_id": "user-1"},
+                access_token="any-token",
+                refresh_token="string",
+            )
+        assert exc_info.value.code == "INVALID_REFRESH"
+        assert exc_info.value.status_code == 401
+
+    asyncio.run(scenario())
+
+
+def test_logout_cross_user_refresh_token_raises_403(fake_db):
+    other_user_refresh_tok = create_refresh_token({"sub": "user-2", "email": "other@careera.io"})
+    async def scenario():
+        with pytest.raises(AppError) as exc_info:
+            await logout(
+                current_user={"user_id": "user-1"},
+                access_token="any-token",
+                refresh_token=other_user_refresh_tok,
+            )
+        assert exc_info.value.code == "INVALID_REFRESH"
+        assert exc_info.value.status_code == 403
+
+    asyncio.run(scenario())
+
+
+def test_logout_session_mismatch_raises_400(fake_db):
+    access_tok_1, _ = generate_token_pair({"sub": "user-1", "email": "test@careera.io"})
+    _, refresh_tok_2 = generate_token_pair({"sub": "user-1", "email": "test@careera.io"})
 
     async def scenario():
-        resp = await logout(access_token=access_tok, refresh_token=refresh_tok)
+        with pytest.raises(AppError) as exc_info:
+            await logout(
+                current_user={"user_id": "user-1"},
+                access_token=access_tok_1,
+                refresh_token=refresh_tok_2,
+            )
+        assert exc_info.value.code == "SESSION_MISMATCH"
+        assert exc_info.value.status_code == 400
+
+    asyncio.run(scenario())
+
+
+def test_logout_already_blacklisted_token_raises_401(fake_db):
+    access_tok, refresh_tok = generate_token_pair({"sub": "user-1", "email": "test@careera.io"})
+    fake_db.refresh_tokens.docs.append({"token": refresh_tok, "type": "refresh"})
+
+    async def scenario():
+        with pytest.raises(AppError) as exc_info:
+            await logout(
+                current_user={"user_id": "user-1"},
+                access_token=access_tok,
+                refresh_token=refresh_tok,
+            )
+        assert exc_info.value.code == "INVALID_REFRESH"
+        assert exc_info.value.status_code == 401
+
+    asyncio.run(scenario())
+
+
+def test_logout_blacklists_both_tokens(fake_db):
+    access_tok, refresh_tok = generate_token_pair({"sub": "user-1", "email": "test@careera.io"})
+
+    async def scenario():
+        resp = await logout(
+            current_user={"user_id": "user-1"},
+            access_token=access_tok,
+            refresh_token=refresh_tok,
+        )
         assert resp.message == "Successfully logged out"
 
         assert await is_token_blacklisted(access_tok) is True
@@ -248,4 +320,6 @@ def test_logout_blacklists_both_tokens(fake_db):
         assert len(fake_db.refresh_tokens.docs) == 2
 
     asyncio.run(scenario())
+
+
 

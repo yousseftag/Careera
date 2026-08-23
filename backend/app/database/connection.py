@@ -13,7 +13,7 @@ DB_NAME = os.getenv("DB_NAME", "careera_db")
 _client = None
 
 async def connect_to_mongo():
-    """Connect to MongoDB when app starts"""
+    """Connect to MongoDB when app starts and ensure collection indexes."""
     global _client
     try:
         _client = AsyncIOMotorClient(MONGODB_URI, server_api=ServerApi('1'))
@@ -21,9 +21,19 @@ async def connect_to_mongo():
         await _client.admin.command('ping')
         print(f"Connected to MongoDB at {MONGODB_URI}")
         print(f"Database: {DB_NAME}")
+
+        # Ensure essential collection indexes
+        db = _client[DB_NAME]
+        try:
+            await db.users.create_index("email", unique=True)
+            await db.refresh_tokens.create_index("token", unique=True)
+            await db.refresh_tokens.create_index("expires_at", expireAfterSeconds=0)
+        except Exception as idx_err:
+            print(f"Warning: Index creation non-fatal error: {idx_err}")
     except Exception as e:
         print(f"Failed to connect to MongoDB: {e}")
         raise
+
 
 async def close_mongo_connection():
     """Close MongoDB connection when app shuts down"""

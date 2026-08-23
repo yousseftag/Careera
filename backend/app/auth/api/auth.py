@@ -10,7 +10,7 @@ from app.auth.model.user import (
     RefreshResponse,
 )
 from app.auth.service import auth as auth_service
-from app.auth.utils.auth import security
+from app.auth.utils.auth import get_current_user, security
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -38,10 +38,13 @@ async def refresh_token(body: RefreshTokenRequest) -> RefreshResponse:
 @router.post("/logout", response_model=LogoutResponse, status_code=200)
 async def logout(
     body: LogoutRequest,
+    current_user: dict = Depends(get_current_user),
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> LogoutResponse:
     """Invalidate current access and refresh tokens."""
     return await auth_service.logout(
+        current_user=current_user,
         access_token=credentials.credentials,
         refresh_token=body.refresh_token,
     )
+

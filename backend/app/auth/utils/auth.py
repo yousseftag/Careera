@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 import uuid
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
@@ -25,20 +26,31 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 security = HTTPBearer()
 
 
-def create_access_token(data: dict) -> str:
-    """Create JWT access token (15 min expiry)."""
+def create_access_token(data: dict, sid: Optional[str] = None) -> str:
+    """Create JWT access token (15 min expiry) bound to a session ID."""
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire, "type": "access", "jti": str(uuid.uuid4())})
+    session_id = sid or str(uuid.uuid4())
+    to_encode.update({"exp": expire, "type": "access", "jti": str(uuid.uuid4()), "sid": session_id})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def create_refresh_token(data: dict) -> str:
-    """Create JWT refresh token (7 days expiry)."""
+def create_refresh_token(data: dict, sid: Optional[str] = None) -> str:
+    """Create JWT refresh token (7 days expiry) bound to a session ID."""
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({"exp": expire, "type": "refresh", "jti": str(uuid.uuid4())})
+    session_id = sid or str(uuid.uuid4())
+    to_encode.update({"exp": expire, "type": "refresh", "jti": str(uuid.uuid4()), "sid": session_id})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def generate_token_pair(data: dict) -> tuple[str, str]:
+    """Generate cryptographically bound (access_token, refresh_token) pair sharing the same sid."""
+    sid = str(uuid.uuid4())
+    access_token = create_access_token(data, sid=sid)
+    refresh_token = create_refresh_token(data, sid=sid)
+    return access_token, refresh_token
+
 
 
 def verify_token(token: str, token_type: str = "access") -> dict:
@@ -66,12 +78,19 @@ def verify_google_token(id_token_str: str) -> dict:
             google_requests.Request(),
             GOOGLE_CLIENT_ID,
         )
+        if not idinfo.get("email_verified", False):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Google account email is not verified.",
+            )
         return {
             "email": idinfo.get("email"),
             "name": idinfo.get("name"),
             "avatar": idinfo.get("picture"),
             "google_id": idinfo.get("sub"),
         }
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -80,18 +99,19 @@ def verify_google_token(id_token_str: str) -> dict:
 
 
 async def blacklist_token(token: str, token_type: str = "access") -> None:
-    """Store token in refresh_tokens collection (MongoDB TTL handles cleanup)."""
+    """Store valid JWT in refresh_tokens collection (MongoDB TTL handles cleanup)."""
     db = await get_database()
     try:
         payload = jwt.decode(
             token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_exp": False}
         )
-        exp = payload.get("exp")
-        if exp:
-            expires_at = datetime.fromtimestamp(exp, tz=timezone.utc)
-        else:
-            expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    except Exception:
+    except Exception as exc:
+        raise ValueError(f"Cannot blacklist malformed JWT token: {exc}")
+
+    exp = payload.get("exp")
+    if exp:
+        expires_at = datetime.fromtimestamp(exp, tz=timezone.utc)
+    else:
         expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
 
     await db.refresh_tokens.insert_one(
@@ -101,6 +121,7 @@ async def blacklist_token(token: str, token_type: str = "access") -> None:
             "expires_at": expires_at,
         }
     )
+
 
 
 async def is_token_blacklisted(token: str) -> bool:

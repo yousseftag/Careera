@@ -10,6 +10,7 @@ from app.auth.utils.auth import (
     blacklist_token,
     create_access_token,
     create_refresh_token,
+    generate_token_pair,
     is_token_blacklisted,
     verify_google_token,
     verify_token,
@@ -77,8 +78,7 @@ async def login_with_google(id_token: str) -> LoginResponse:
         avatar = user.get("avatar") or avatar
 
     token_data = {"sub": user_id, "email": email}
-    access_token = create_access_token(token_data)
-    refresh_token = create_refresh_token(token_data)
+    access_token, refresh_token = generate_token_pair(token_data)
 
     return LoginResponse(
         message="Login successful",
@@ -122,8 +122,7 @@ async def dev_login(
         name = user.get("name", name)
 
     token_data = {"sub": user_id, "email": email}
-    access_token = create_access_token(token_data)
-    refresh_token = create_refresh_token(token_data)
+    access_token, refresh_token = generate_token_pair(token_data)
 
     return LoginResponse(
         message="DEV login successful",
@@ -181,8 +180,7 @@ async def refresh_access_token(refresh_token: str) -> RefreshResponse:
         )
 
     token_data = {"sub": user_id, "email": user.get("email")}
-    new_access_token = create_access_token(token_data)
-    new_refresh_token = create_refresh_token(token_data)
+    new_access_token, new_refresh_token = generate_token_pair(token_data)
 
     # Blacklist the old refresh token upon rotation
     await blacklist_token(refresh_token, token_type="refresh")
@@ -196,9 +194,11 @@ async def refresh_access_token(refresh_token: str) -> RefreshResponse:
 
 
 async def logout(
-    access_token: Optional[str] = None, refresh_token: Optional[str] = None
+    current_user: dict,
+    access_token: Optional[str] = None,
+    refresh_token: Optional[str] = None,
 ) -> LogoutResponse:
-    """Invalidate active tokens by storing them in the MongoDB blacklist."""
+    """Invalidate active tokens by verifying ownership, session binding, and storing in blacklist."""
     if not refresh_token or not refresh_token.strip():
         api_error(
             code="MISSING_TOKEN",
@@ -206,9 +206,54 @@ async def logout(
             status_code=400,
         )
 
+    if await is_token_blacklisted(refresh_token):
+        api_error(
+            code="INVALID_REFRESH",
+            message="Refresh token has already been revoked.",
+            status_code=401,
+        )
+
+    try:
+        refresh_payload = verify_token(refresh_token, token_type="refresh")
+    except Exception:
+        api_error(
+            code="INVALID_REFRESH",
+            message="Invalid or expired refresh token.",
+            status_code=401,
+        )
+
+    user_id = current_user.get("user_id")
+    if refresh_payload.get("sub") != user_id:
+        api_error(
+            code="INVALID_REFRESH",
+            message="Refresh token does not belong to the current user.",
+            status_code=403,
+        )
+
     if access_token:
-        await blacklist_token(access_token, token_type="access")
+        try:
+            access_payload = verify_token(access_token, token_type="access")
+        except Exception:
+            access_payload = {}
+
+        access_sid = access_payload.get("sid")
+        refresh_sid = refresh_payload.get("sid")
+        if access_sid and refresh_sid and access_sid != refresh_sid:
+            api_error(
+                code="SESSION_MISMATCH",
+                message="Refresh token does not belong to the active access token session.",
+                status_code=400,
+            )
+
+        try:
+            await blacklist_token(access_token, token_type="access")
+        except Exception:
+            pass
+
     await blacklist_token(refresh_token, token_type="refresh")
 
     return LogoutResponse(message="Successfully logged out")
+
+
+
 

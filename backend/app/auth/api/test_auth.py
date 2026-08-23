@@ -10,8 +10,10 @@ from app.auth.utils.auth import (
     blacklist_token,
     create_access_token,
     create_refresh_token,
+    generate_token_pair,
     is_token_blacklisted,
 )
+
 from app.share.api.errors import register_error_handler
 
 
@@ -131,8 +133,7 @@ def test_api_refresh_token_revoked(fake_db):
 
 
 def test_api_logout_success(fake_db):
-    access_tok = create_access_token({"sub": "user-123", "email": "test@careera.io"})
-    refresh_tok = create_refresh_token({"sub": "user-123", "email": "test@careera.io"})
+    access_tok, refresh_tok = generate_token_pair({"sub": "user-123", "email": "test@careera.io"})
 
     client = _make_client()
     resp = client.post(
@@ -155,9 +156,8 @@ def test_api_logout_unauthorized_without_bearer(fake_db):
     assert resp.status_code == 401
 
 
-
 def test_api_logout_missing_refresh_token(fake_db):
-    access_tok = create_access_token({"sub": "user-123", "email": "test@careera.io"})
+    access_tok, _ = generate_token_pair({"sub": "user-123", "email": "test@careera.io"})
 
     client = _make_client()
     resp = client.post(
@@ -170,3 +170,72 @@ def test_api_logout_missing_refresh_token(fake_db):
     data = resp.json()
     assert data["error"] == "MISSING_TOKEN"
     assert data["status_code"] == 400
+
+
+def test_api_logout_invalid_refresh_token_string(fake_db):
+    access_tok, _ = generate_token_pair({"sub": "user-123", "email": "test@careera.io"})
+
+    client = _make_client()
+    resp = client.post(
+        "/api/v1/auth/logout",
+        headers={"Authorization": f"Bearer {access_tok}"},
+        json={"refresh_token": "string"},
+    )
+
+    assert resp.status_code == 401
+    data = resp.json()
+    assert data["error"] == "INVALID_REFRESH"
+    assert data["status_code"] == 401
+
+
+def test_api_logout_cross_user_refresh_token(fake_db):
+    access_tok, _ = generate_token_pair({"sub": "user-123", "email": "test@careera.io"})
+    _, other_refresh_tok = generate_token_pair({"sub": "user-456", "email": "other@careera.io"})
+
+    client = _make_client()
+    resp = client.post(
+        "/api/v1/auth/logout",
+        headers={"Authorization": f"Bearer {access_tok}"},
+        json={"refresh_token": other_refresh_tok},
+    )
+
+    assert resp.status_code == 403
+    data = resp.json()
+    assert data["error"] == "INVALID_REFRESH"
+    assert data["status_code"] == 403
+
+
+def test_api_logout_session_mismatch(fake_db):
+    access_tok_1, _ = generate_token_pair({"sub": "user-123", "email": "test@careera.io"})
+    _, refresh_tok_2 = generate_token_pair({"sub": "user-123", "email": "test@careera.io"})
+
+    client = _make_client()
+    resp = client.post(
+        "/api/v1/auth/logout",
+        headers={"Authorization": f"Bearer {access_tok_1}"},
+        json={"refresh_token": refresh_tok_2},
+    )
+
+    assert resp.status_code == 400
+    data = resp.json()
+    assert data["error"] == "SESSION_MISMATCH"
+    assert data["status_code"] == 400
+
+
+def test_api_logout_already_revoked_token(fake_db):
+    access_tok, refresh_tok = generate_token_pair({"sub": "user-123", "email": "test@careera.io"})
+    fake_db.refresh_tokens.docs.append({"token": refresh_tok, "type": "refresh"})
+
+    client = _make_client()
+    resp = client.post(
+        "/api/v1/auth/logout",
+        headers={"Authorization": f"Bearer {access_tok}"},
+        json={"refresh_token": refresh_tok},
+    )
+
+    assert resp.status_code == 401
+    data = resp.json()
+    assert data["error"] == "INVALID_REFRESH"
+    assert data["status_code"] == 401
+
+
