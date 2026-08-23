@@ -1,17 +1,7 @@
-from typing import Any, Optional
-
 from bson import ObjectId
-from pydantic import BaseModel
 
 from app.database.connection import get_database
-
-
-class ProfileData(BaseModel):
-    """Parsed profile fields read from the ``users`` document."""
-
-    cv_parsed_text: Optional[str] = None
-    linkedin_parsed_text: Optional[str] = None
-    interests: Optional[dict[str, Any]] = None
+from app.profile.model.profile import ProfileData
 
 
 async def get_profile(user_id: str) -> ProfileData:
