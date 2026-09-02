@@ -95,9 +95,9 @@ Validates a Google `id_token`, creates or retrieves the user, issues access + re
 </details>
 
 <details>
-<summary><strong>POST</strong> <code>/auth/refresh</code> — Refresh Access Token</summary>
+<summary><strong>POST</strong> <code>/auth/refresh</code> — Refresh Access Token (Sliding Window)</summary>
 
-Exchanges a valid refresh token for a new access token.
+Exchanges a valid refresh token for a new access token and a new rotated refresh token (sliding 7 days of inactivity). The old refresh token is blacklisted.
 
 **Request:**
 ```json
@@ -108,6 +108,7 @@ Exchanges a valid refresh token for a new access token.
 ```json
 {
   "access_token": "string",
+  "refresh_token": "string",
   "token_type": "bearer",
   "expires_in": 900
 }
@@ -120,7 +121,12 @@ Exchanges a valid refresh token for a new access token.
 <details>
 <summary><strong>POST</strong> <code>/auth/logout</code> — Logout</summary>
 
-Blacklists the current access and refresh tokens (MongoDB TTL index handles cleanup).
+Blacklists the active access token and refresh token in MongoDB (TTL index handles cleanup).
+
+**Request:**
+```json
+{ "refresh_token": "string" }
+```
 
 **Response `200`:**
 ```json

@@ -58,6 +58,75 @@ flowchart LR
 
 ---
 
+## ⏳ Async Execution: Background Tasks & Polling Lifecycle
+
+Because LLM generation across large prompts (career roadmaps, CV synthesis, node expansions, coding grading) can take **5 to 20 seconds**, endpoints that trigger LLM calls must **never make the client wait synchronously**.
+
+Instead, all heavy LLM features in Careera use FastAPI's **`BackgroundTasks` + Polling pattern**:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Frontend Client
+    participant API as FastAPI Router (POST)
+    participant Worker as Background Task (Worker)
+    participant LLM as LLM Provider (Gemini/DeepSeek/OpenAI)
+    participant DB as MongoDB
+
+    Client->>API: 1. POST /api/v1/<domain>/<action>
+    API->>DB: Insert document with status = "PENDING"
+    API->>Worker: Schedule background coroutine: run_<action>(doc_id, user_id)
+    API-->>Client: 2. Immediate Response: { "id": "123", "status": "PENDING" } (<50ms)
+    
+    Worker->>LLM: 3. await generate_json(system, user, PydanticSchema)
+    LLM-->>Worker: Validated JSON Data
+    Worker->>DB: 4. Update document: status = "READY", data = result
+    
+    loop Polling (Every 1.5 - 2s)
+        Client->>API: 5. GET /api/v1/<domain>/<action>/123
+        API->>DB: Check document status
+        API-->>Client: Return { "status": "PENDING" } or { "status": "READY", "data": ... }
+    end
+```
+
+### Standard Implementation Recipe for All LLM Features:
+
+#### 1. Router Endpoint (`POST /...`):
+```python
+@router.post("/analyze", response_model=AnalyzeResponse, status_code=200)
+async def create_analysis(
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
+):
+    # Inserts PENDING document & schedules background task
+    return await analysis_service.create_analysis(
+        user_id=current_user["user_id"],
+        background_tasks=background_tasks,
+    )
+```
+
+#### 2. Service Background Worker:
+```python
+async def run_analysis(analysis_id: str, user_id: str):
+    try:
+        # Await LLM asynchronously without blocking the server
+        result = await generate_json(system=..., user=..., response_model=...)
+        
+        # Persist final READY status and parsed data
+        await db.analyses.update_one(
+            {"_id": ObjectId(analysis_id)},
+            {"$set": {"status": "READY", "result": result}}
+        )
+    except Exception as exc:
+        # Graceful failure handling
+        await db.analyses.update_one(
+            {"_id": ObjectId(analysis_id)},
+            {"$set": {"status": "FAILED", "error": str(exc)}}
+        )
+```
+
+---
+
 ## ⚙️ Environment Configuration
 
 Configure the provider in `backend/.env`:
@@ -76,11 +145,11 @@ Configure the provider in `backend/.env`:
 LLM_PROVIDER=mock
 ```
 
-#### 2. Google Gemini (Fast & Cost-Effective)
+#### 2. Google Gemini (Fast & Cost-Effective — Default)
 ```env
 LLM_PROVIDER=gemini
 LLM_API_KEY=AIzaSy...
-LLM_MODEL=gemini-1.5-flash
+LLM_MODEL=gemini-3.6-flash
 ```
 
 #### 3. DeepSeek (Low-Cost)
@@ -127,13 +196,36 @@ When building a new domain feature (e.g., Feature 4 Project Grading or Feature 5
 
 ---
 
-## 🚦 Testing
+## 🚦 Testing: Unit Tests vs. Live Integration Tests
 
-* **Fast Mock Unit Tests (Default)**:
-  ```bash
-  poetry run pytest
-  ```
-* **Live Integration Tests (Real API Calls)**:
-  ```bash
-  LLM_PROVIDER=gemini LLM_API_KEY=your_key poetry run pytest -m integration -s
-  ```
+Careera provides two testing tiers configured via `backend/pytest.ini`:
+
+| Tier | Command | Speed & Cost | What it Does |
+|---|---|---|---|
+| **Unit Tests** *(Default)* | `poetry run pytest` | ⚡ **~1–2s** / **$0.00** | Uses in-memory `MockChatModel` & `FakeDB`. Runs 100% offline with zero API keys. `pytest.ini` automatically ignores integration tests by default. |
+| **Live Integration Tests** | `poetry run pytest -m integration -s` | ⏳ **~10–15s** / Real Quota | Sends real HTTPS requests to the configured cloud provider (`LLM_PROVIDER`), parses output against Pydantic blueprints, and saves the live JSON to `backend/integration_results/career_analysis_live.json`. |
+
+### Running the Live Integration Test:
+```bash
+# 1. Ensure LLM_PROVIDER and LLM_API_KEY are set in backend/.env
+# (e.g. gemini, deepseek, openai, or anthropic)
+
+# 2. Run the integration test:
+poetry run pytest -m integration -s
+
+# 3. View the generated live JSON result:
+cat backend/integration_results/career_analysis_live.json
+```
+
+### Domain LLM Calls to Test:
+
+| Feature Area | Call Type | Trigger Marker | Response Blueprint | Description |
+|---|---|---|---|---|
+| **Career Analysis** *(Feature 2)* | Analysis Generation | `"career analysis"` | `AnalysisLLMOutput` | CV & LinkedIn synthesis, skill gap matching, ranked career directions. |
+| **Career Roadmap** *(Feature 2)* | Path Generation | `"career path"` | `CareerPathLLMOutput` | Multi-step milestone graph (learning, project, and interview nodes). |
+| **Node Expansion** *(Feature 3)* | Learning Content | `"learning template"` | `LearningTemplateLLMOutput` | Curriculum, key concepts, reading guides, and curated resources. |
+| **Node Expansion** *(Feature 3)* | Project Boilerplate | `"project template"` | `ProjectTemplateLLMOutput` | Task breakdown, subtask acceptance criteria, and model solution. |
+| **Node Expansion** *(Feature 3)* | Interview Questions | `"interview template"` | `InterviewTemplateLLMOutput` | Technical question sequences, grading rubric, and model answers. |
+| **Project Session** *(Feature 4)* | Code Evaluation | `"project evaluation"` | `ProjectEvaluationOutput` | Automated grading, criteria verification, pass/fail status, and line-by-line feedback. |
+| **Interview Session** *(Feature 5)* | Answer Evaluation | `"interview evaluation"` | `InterviewEvaluationOutput` | Real-time answer scoring, clarity evaluation, and constructive feedback. |
+

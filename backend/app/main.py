@@ -12,7 +12,16 @@ async def lifespan(app: FastAPI):
     yield
     await close_mongo_connection()
 
-app = FastAPI(title="Careera API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(
+    title="Careera API",
+    version="1.0.0",
+    lifespan=lifespan,
+    swagger_ui_parameters={
+        "persistAuthorization": True,
+        "tryItOutEnabled": True,
+    },
+)
+
 
 register_error_handler(app)
 
@@ -55,6 +64,9 @@ async def health_check():
 # Import and include routers
 from app.auth.api import auth
 from app.career.api import analysis as career_analysis
+from app.profile.api import profile as user_profile
 
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(user_profile.router, prefix="/api/v1")
 app.include_router(career_analysis.router, prefix="/api/v1")
+

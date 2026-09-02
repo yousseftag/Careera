@@ -11,6 +11,10 @@ class RefreshTokenRequest(BaseModel):
     """Refresh token request"""
     refresh_token: str
 
+class LogoutRequest(BaseModel):
+    """Logout payload containing the refresh token to blacklist."""
+    refresh_token: str
+
 # Response Models
 class UserProfile(BaseModel):
     """User profile data"""
@@ -39,8 +43,9 @@ class LoginResponse(BaseModel):
     user: UserResponse
 
 class RefreshResponse(BaseModel):
-    """Response after token refresh"""
+    """Response after token refresh with sliding window rotation"""
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
     expires_in: int = 900  # 15 minutes
 

@@ -52,7 +52,17 @@ class FakeCollection:
         for doc in self.docs:
             if all(doc.get(k) == v for k, v in query.items()):
                 if "$set" in update:
-                    doc.update(update["$set"])
+                    for k, v in update["$set"].items():
+                        if "." in k:
+                            parts = k.split(".")
+                            curr = doc
+                            for part in parts[:-1]:
+                                if part not in curr or not isinstance(curr[part], dict):
+                                    curr[part] = {}
+                                curr = curr[part]
+                            curr[parts[-1]] = v
+                        else:
+                            doc[k] = v
                 return
 
 
@@ -61,6 +71,7 @@ class FakeDB:
         self.users = FakeCollection()
         self.analyses = FakeCollection()
         self.career_paths = FakeCollection()
+        self.refresh_tokens = FakeCollection()
 
 
 @pytest.fixture
@@ -73,4 +84,6 @@ def fake_db(monkeypatch):
     monkeypatch.setattr("app.database.connection.get_database", _get_database)
     monkeypatch.setattr("app.career.service.analysis.get_database", _get_database)
     monkeypatch.setattr("app.profile.service.profile.get_database", _get_database)
+    monkeypatch.setattr("app.auth.service.auth.get_database", _get_database, raising=False)
+    monkeypatch.setattr("app.auth.utils.auth.get_database", _get_database, raising=False)
     return db
