@@ -24,10 +24,10 @@ This document splits the backend and deployment work into independent, paralleli
 *Deals with `analyses` and `career_paths` collections. Can be mocked initially without LLM.*
 - [x] `POST /careers/analyze` (Trigger async LLM generation)
 - [x] `GET /careers/analyses` & `GET /careers/analyses/{id}` (Polling)
-- [ ] `POST /careers/paths` (Generate path from recommendation)
-- [ ] `GET /careers/paths` & `GET /careers/paths/{id}`
-- [ ] `PATCH /careers/paths/{id}/archive`
-- [ ] `DELETE /careers/paths/{id}` & `PATCH /careers/paths/{id}/restore`
+- [x] `POST /careers/paths` (Generate path from recommendation)
+- [x] `GET /careers/paths` & `GET /careers/paths/{id}`
+- [x] `PATCH /careers/paths/{id}/archive`
+- [x] `DELETE /careers/paths/{id}` & `PATCH /careers/paths/{id}/restore`
 
 ### 3. Node Content & Expansion
 *Deals with the look-ahead template generation and learning nodes.*
