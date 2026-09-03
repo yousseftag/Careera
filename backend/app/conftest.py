@@ -10,6 +10,11 @@ class FakeInsertResult:
         self.inserted_id = inserted_id
 
 
+class FakeUpdateResult:
+    def __init__(self, matched_count: int = 1) -> None:
+        self.matched_count = matched_count
+
+
 class FakeCursor:
     def __init__(self, docs: list[dict[str, Any]]) -> None:
         self._docs = docs
@@ -32,38 +37,58 @@ class FakeCollection:
 
     async def insert_one(self, doc: dict[str, Any]) -> FakeInsertResult:
         stored = dict(doc)
-        stored["_id"] = ObjectId()
+        if "_id" not in stored:
+            stored["_id"] = ObjectId()
         self.docs.append(stored)
         return FakeInsertResult(stored["_id"])
 
     async def find_one(self, query: dict[str, Any]) -> dict[str, Any] | None:
         for doc in self.docs:
-            if all(doc.get(k) == v for k, v in query.items()):
+            if self._matches(doc, query):
                 return dict(doc)
         return None
 
     def find(self, query: dict[str, Any]) -> FakeCursor:
-        matches = [
-            d for d in self.docs if all(d.get(k) == v for k, v in query.items())
-        ]
+        matches = [d for d in self.docs if self._matches(d, query)]
         return FakeCursor(matches)
 
-    async def update_one(self, query: dict[str, Any], update: dict[str, Any]) -> None:
+    @staticmethod
+    def _matches(doc: dict[str, Any], query: dict[str, Any]) -> bool:
+        for k, v in query.items():
+            if isinstance(v, dict) and "$ne" in v:
+                if doc.get(k) == v["$ne"]:
+                    return False
+            elif doc.get(k) != v:
+                return False
+        return True
+
+    async def update_one(
+        self, query: dict[str, Any], update: dict[str, Any]
+    ) -> FakeUpdateResult:
         for doc in self.docs:
-            if all(doc.get(k) == v for k, v in query.items()):
+            if self._matches(doc, query):
                 if "$set" in update:
                     for k, v in update["$set"].items():
                         if "." in k:
                             parts = k.split(".")
-                            curr = doc
+                            curr: Any = doc
                             for part in parts[:-1]:
-                                if part not in curr or not isinstance(curr[part], dict):
-                                    curr[part] = {}
-                                curr = curr[part]
-                            curr[parts[-1]] = v
+                                key = (
+                                    int(part)
+                                    if part.isdigit() and isinstance(curr, list)
+                                    else part
+                                )
+                                curr = curr[key]
+                            last_key = (
+                                int(parts[-1])
+                                if parts[-1].isdigit() and isinstance(curr, list)
+                                else parts[-1]
+                            )
+                            curr[last_key] = v
                         else:
                             doc[k] = v
-                return
+                return FakeUpdateResult(matched_count=1)
+        return FakeUpdateResult(matched_count=0)
 
 
 class FakeDB:
@@ -83,7 +108,14 @@ def fake_db(monkeypatch):
 
     monkeypatch.setattr("app.database.connection.get_database", _get_database)
     monkeypatch.setattr("app.career.service.analysis.get_database", _get_database)
+    monkeypatch.setattr(
+        "app.career.service.path.get_database", _get_database, raising=False
+    )
     monkeypatch.setattr("app.profile.service.profile.get_database", _get_database)
-    monkeypatch.setattr("app.auth.service.auth.get_database", _get_database, raising=False)
-    monkeypatch.setattr("app.auth.utils.auth.get_database", _get_database, raising=False)
+    monkeypatch.setattr(
+        "app.auth.service.auth.get_database", _get_database, raising=False
+    )
+    monkeypatch.setattr(
+        "app.auth.utils.auth.get_database", _get_database, raising=False
+    )
     return db
